@@ -52,7 +52,6 @@
 #   -f, --force           Force operation.
 #   -i, --irq             Configure static IRQ values.
 #   -o, --output          Output existing IRQ values.
-#   -d DELAY, --delay DELAY
 #                         Delay value (as used by tc) Default is 10ms
 #   -c, --setup           Run setup.
 #   -t, --teardown        Teardown setup (rebooting will do the same).
@@ -71,50 +70,74 @@
 
 import argparse
 import subprocess
+import yaml
+import json
+import random
 
 def main():
     args = parse_args()
 
+
+    try:
+        with open(args.yaml,'r') as f:
+            configuration = yaml.load(f)
+    except FileNotFoundError:
+        print('Error: File {} not found!'.format(args.yaml))
+        exit(1)
+
     ##########################################
     # Hardcoded customisation (changes very rarely - if ever)
-    interfaces = {'enp7s0': 'enp7s0', 'enp6s0': 'enp6s0'}
+    #interfaces = {'enp7s0': 'enp7s0', 'enp6s0': 'enp6s0'}
     #interface_core_mapping = {'eth0-tx': 30,
     #                          'eth0-rx': 10,
     #                          'eth1-tx': 10,
     #                          'eth1-rx': 30}
     #delay = '10ms'
-    queues = 8
+    #queues = 8
     # End of customisation section
     ##########################################
 
-    try:
+    for group in configuration['interface_groups']:
+        delay = configuration['interface_groups'][group]['delay']
+        queue_count = configuration['interface_groups'][group]['queue_count']
+        interface_list = list(configuration['interface_groups'][group]['members'].keys())
+
+
         interface_core_mapping = dict()
-        mapping_string = args.map.strip()
-        interface_map= mapping_string.split(',')
-        for interface in interface_map:
-            key_value = interface.split(':')
-            interface_core_mapping[key_value[0]] = int(key_value[1])
-    except Exception:
-        print('Error: Unable to parse mapstring! String: {}'.format(args.map.strip()))
-        exit(1)
+        for interface in configuration['interface_groups'][group]['members']:
+            for suffix in configuration['interface_groups'][group]['members'][interface]:
+                if suffix not in ('tx','rx'):
+                    print('Error: only "tx" and "rx" should be present under interface members!')
+                    exit(1)
+                interface_core_mapping['{}-{}'.format(interface,suffix)] = configuration['interface_groups'][group]['members'][interface][suffix]
 
-    sim = DelaySim(interfaces, interface_core_mapping, args.delay, queues)
+        sim = DelaySim(interface_list, interface_core_mapping, configuration['kernel_tweaks'], delay, queue_count, args.state)
+        sim.set_show(args.show)
+        sim.set_verbose(args.verbose)
+        sim.set_force(args.force)
 
-    sim.set_show(args.show)
-    sim.set_verbose(args.verbose)
-    sim.set_force(args.force)
+        if args.setup:
+            sim.initial_setup()
+        elif args.teardown:
+            sim.teardown_setup()
 
-    if args.setup:
-        sim.initial_setup()
-    elif args.teardown:
-        sim.teardown_setup()
+        if args.output:
+            sim.process_irq_values(configure=False,show_existing=False)  # Show new stuff
+            sim.process_irq_values(configure=False,show_existing=True)  # Show existing stuff
 
-    if args.output:
-        sim.process_irq_values(configure=False,show_existing=False)  # Show new stuff
-        sim.process_irq_values(configure=False,show_existing=True)  # Show existing stuff
+        if args.irq and not(args.teardown):
+            sim.process_irq_values(configure=True)  # Configure valies
 
-    if args.irq:
-        sim.process_irq_values(configure=True)  # Configure valies
+    #try:
+    #    interface_core_mapping = dict()
+    #    mapping_string = args.map.strip()
+    #    interface_map= mapping_string.split(',')
+    #    for interface in interface_map:
+    #        key_value = interface.split(':')
+    #        interface_core_mapping[key_value[0]] = int(key_value[1])
+    #except Exception:
+    #    print('Error: Unable to parse mapstring! String: {}'.format(args.map.strip()))
+    #    exit(1)
 
 
 def parse_args():
@@ -122,14 +145,16 @@ def parse_args():
         description='Configures the Linux OS to process delay-simulator parameters.',
         epilog='Written and developed by David Chidell (dchidell@cisco.com) & Reece Hanham (rehanham@cisco.com)')
 
-    parser.add_argument('map',metavar='Interrupt Map',
-                        help="This is the interrupt mappings for the ethernet interfaces to CPU cores. Example: 'eth0-tx:10,eth0-rx:30,eth1-tx:30,eth1-rx:10'")
     parser.add_argument('-s', '--show', action='store_true',
                         help='Show information only - do not execute.')
     parser.add_argument('-v', '--verbose', action='store_true',
                         help='Increase verbosity.')
     parser.add_argument('-f', '--force', action='store_true',
                         help='Force operation.')
+    parser.add_argument('-y', '--yaml', default='delay.yml',
+                        help='YML config file.')
+    parser.add_argument('-a', '--state', default='.delay_state.json',
+                        help='Delay state file. No need to edit manually.')             
                     
     parser.add_argument('-i', '--irq', action='store_true',
                         help='Configure static IRQ values.')
@@ -149,35 +174,20 @@ def parse_args():
 
 
 class DelaySim():
-    interfaces = {}  # This dict should contain real->logical interface mappings i.e. {'enp7s0':'eth0','enp6s0':'eth1'}
-    # This dict should contain which interrupts should be mapped to which core i.e. {'eth0-tx':30,'eth0-rx':10,'eth1-tx':20,'eth1-rx':0}
-    interface_core_mapping = {}
-    delay = '0ms'  # Delay as taken by tc qdisc
-    queues = 8  # Number of ingress / egress queues for each interface
-    kernel_tweaks = {
-        # allow testing with buffers up to 128MB
-        'net.core.rmem_max': '536870912',
-        'net.core.wmem_max': '536870912',
-        # increase Linux autotuning TCP buffer limit to 64MB
-        'net.ipv4.tcp_rmem': '4096 87380 67108864',
-        'net.ipv4.tcp_wmem': '4096 65536 67108864',
-        # recommended default congestion control is htcp
-        'net.ipv4.tcp_congestion_control': 'htcp',
-        # recommended for hosts with jumbo frames enabled
-        'net.ipv4.tcp_mtu_probing': '1',
-        # recommended for CentOS7/Debian8 hosts
-        'net.core.default_qdisc': 'fq',
-    }
-
     show_only = False
     verbose = False
     force = False
 
-    def __init__(self, interfaces, interface_core_mapping, delay='10ms', queues=8):
+    def __init__(self, interfaces, interface_core_mapping, kernel_tweaks, delay, queues, state_file):
         self.interfaces = interfaces
         self.interface_core_mapping = interface_core_mapping
         self.delay = delay
         self.queues_per_interface = queues
+        self.kernel_tweaks = kernel_tweaks
+        self.state_file = state_file
+        self.state = dict()
+        self.read_state()
+
 
     def set_show(self, show):
         self.show_only = bool(show)
@@ -187,6 +197,34 @@ class DelaySim():
 
     def set_force(self, force):
         self.force = bool(force)
+
+    def delete_state(self):
+        for interface in self.interfaces:
+            self.state.pop(interface,None)
+        self.save_state()
+
+    def save_state(self):
+        state_string = json.dumps(self.state)
+        with open(self.state_file,'w') as f:
+            f.write(state_string)
+
+    def read_state(self):
+        try:
+            with open(self.state_file,'r') as f:
+                data = f.read()
+                self.state = json.loads(data)
+        except FileNotFoundError:
+            self.state = dict()
+
+        bridge_id = random.randint(10,100000)  
+        if self.verbose:
+            print('Generating bridge IDs...')
+            print('Bridge ID: {}'.format(bridge_id))
+            print('Interfaces: {}'.format(','.join(self.interfaces)))
+
+        for interface in self.interfaces:
+            if self.state.get(interface,None) is None:
+                self.state[interface] = bridge_id
 
     def teardown_setup(self):
         if self.is_setup_done() is False:
@@ -211,8 +249,10 @@ class DelaySim():
                     print(
                         'Warning: Unable to remove tc configuration - possibly it never existed! Detail: {}'.format(e))
         print('Removing bridge interfaces...')
-        self.process_external_command('ifconfig br0 down')
-        self.process_external_command('brctl delbr br0')
+        self.process_external_command('ifconfig br{} down'.format(self.get_bridge_id()))
+        self.process_external_command('brctl delbr br{}'.format(self.get_bridge_id()))
+        self.delete_state()
+        print('Torn down!')
 
     def initial_setup(self):
         # This should *really* be done inside a bash script - but this is good enough.
@@ -236,11 +276,11 @@ class DelaySim():
             self.process_external_command(
                 'ifconfig {hw_interface} 0.0.0.0 promisc up'.format(hw_interface=interface))
         print('Creating and configuring bridge groups...')
-        self.process_external_command('brctl addbr br0')
+        self.process_external_command('brctl addbr br{}'.format(self.get_bridge_id()))
         for interface in self.interfaces:
             self.process_external_command(
-                'brctl addif br0 {hw_interface}'.format(hw_interface=interface))
-        self.process_external_command('ifconfig br0 up')
+                'brctl addif br{} {hw_interface}'.format(self.get_bridge_id(),hw_interface=interface))
+        self.process_external_command('ifconfig br{} up'.format(self.get_bridge_id()))
         print('Tuning CPU...')
         self.process_external_command('cpufreq-set -r -g performance')
         print('Tuning kernel values...')
@@ -256,6 +296,7 @@ class DelaySim():
         except ValueError as e:
             print(
                 'Warning: Unable to add tc configuration - does it already exist? Detail: {}'.format(e))
+        self.save_state()
         print('All configured!')
 
     def process_irq_values(self, configure=False,show_existing=False):
@@ -296,9 +337,17 @@ class DelaySim():
                         # Current loop only needs to run once.
                         break
 
+    def get_bridge_id(self):
+        bridge_list = list(set(self.state[idx] for idx in self.interfaces))
+        if len(bridge_list) > 1:
+            print('Error: Detected multiple bridge-IDs in a single instance....delete file {} and try again.'.format(self.state_file))
+            print(self.state)
+            exit(1)
+        return bridge_list[0]
+            
+
     def is_setup_done(self):
-        # This is definitely dodge...we'll check to see if the bridge group exists and if it does we'll ASSUME config is done.
-        process = subprocess.run(['ifconfig', 'br0'],
+        process = subprocess.run(['ifconfig', 'br{}'.format(self.get_bridge_id())],
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         response = True if process.returncode == 0 else False
         return response
