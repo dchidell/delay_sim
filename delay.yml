@@ -1,0 +1,42 @@
+# Configure the interfaces we want to use. 
+interface_groups:
+ # Interfaces should be in pairs, these will be bonded together.
+ card1:
+  delay: 100ms
+  queue_count: 8
+  members:
+   enp15s0:
+    tx: 0
+    rx: 0
+   enp21s0:
+    tx: 0
+    rx: 0
+
+ card2:
+  delay: 100ms
+  queue_count: 8
+  members:
+   enp136s0:
+    tx: 0
+    rx: 0
+   enp143s0:
+    tx: 0
+    rx: 0
+
+# This changes the number of expected hardware queues on the NIC
+
+
+# This section contains some misc kernel tweaks
+kernel_tweaks:
+ # allow testing with buffers up to 128MB
+ 'net.core.rmem_max': '536870912'
+ 'net.core.wmem_max': '536870912'
+ # increase Linux autotuning TCP buffer limit to 64MB
+ 'net.ipv4.tcp_rmem': '4096 87380 67108864'
+ 'net.ipv4.tcp_wmem': '4096 65536 67108864'
+ # recommended default congestion control is htcp
+ 'net.ipv4.tcp_congestion_control': 'htcp'
+ # recommended for hosts with jumbo frames enabled
+ 'net.ipv4.tcp_mtu_probing': '1'
+ # recommended for CentOS7/Debian8 hosts
+ 'net.core.default_qdisc': 'fq'
