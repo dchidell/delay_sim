@@ -36,7 +36,7 @@
 # * subprocess
 #################################
 # **Usage:**
-# usage: delay.py [-h] [-s] [-v] [-f] [-i] [-o] [-d DELAY] [-c | -t] Interrupt Map
+# usage: delay.py [-h] [-s] [-v] [-f] [-i] [-o] [-c | -t] Interrupt Map
 # 
 # Configures the Linux OS to process delay-simulator parameters.
 # 
@@ -85,18 +85,6 @@ def main():
         print('Error: File {} not found!'.format(args.yaml))
         exit(1)
 
-    ##########################################
-    # Hardcoded customisation (changes very rarely - if ever)
-    #interfaces = {'enp7s0': 'enp7s0', 'enp6s0': 'enp6s0'}
-    #interface_core_mapping = {'eth0-tx': 30,
-    #                          'eth0-rx': 10,
-    #                          'eth1-tx': 10,
-    #                          'eth1-rx': 30}
-    #delay = '10ms'
-    #queues = 8
-    # End of customisation section
-    ##########################################
-
     for group in configuration['interface_groups']:
         delay = configuration['interface_groups'][group]['delay']
         queue_count = configuration['interface_groups'][group]['queue_count']
@@ -126,19 +114,7 @@ def main():
             sim.process_irq_values(configure=False,show_existing=True)  # Show existing stuff
 
         if args.irq and not(args.teardown):
-            sim.process_irq_values(configure=True)  # Configure valies
-
-    #try:
-    #    interface_core_mapping = dict()
-    #    mapping_string = args.map.strip()
-    #    interface_map= mapping_string.split(',')
-    #    for interface in interface_map:
-    #        key_value = interface.split(':')
-    #        interface_core_mapping[key_value[0]] = int(key_value[1])
-    #except Exception:
-    #    print('Error: Unable to parse mapstring! String: {}'.format(args.map.strip()))
-    #    exit(1)
-
+            sim.process_irq_values(configure=True)
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -161,9 +137,6 @@ def parse_args():
     
     parser.add_argument('-o', '--output', action='store_true',
                         help='Output existing IRQ values.')
-
-    parser.add_argument('-d', '--delay',default='10ms',
-                        help='Delay value (as used by tc) Default is 10ms')
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('-c', '--setup', action='store_true',
