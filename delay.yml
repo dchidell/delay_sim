@@ -1,11 +1,15 @@
 # Configure the interfaces we want to use. 
 interface_groups:
- # Interfaces should be in pairs, these will be bonded together.
+ # Interfaces should be in pairs, these will be bonded together. The heading here is a name only.
  card1:
+  # Delay to introduce
   delay: 100ms
+  # The number of HW queues per NIC
   queue_count: 8
+  # Our delay group members
   members:
    enp15s0:
+    # This is CPU allocated for tx & rx queues. This number is the start. End is start + queue_count
     tx: 0
     rx: 0
    enp21s0:
@@ -22,9 +26,6 @@ interface_groups:
    enp143s0:
     tx: 0
     rx: 0
-
-# This changes the number of expected hardware queues on the NIC
-
 
 # This section contains some misc kernel tweaks
 kernel_tweaks:
