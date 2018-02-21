@@ -99,6 +99,7 @@ def main():
                     exit(1)
                 interface_core_mapping['{}-{}'.format(interface,suffix)] = configuration['interface_groups'][group]['members'][interface][suffix]
 
+        print(interface_core_mapping)
         sim = DelaySim(interface_list, interface_core_mapping, configuration['kernel_tweaks'], delay, queue_count, args.state)
         sim.set_show(args.show)
         sim.set_verbose(args.verbose)
@@ -189,7 +190,7 @@ class DelaySim():
         except FileNotFoundError:
             self.state = dict()
 
-        bridge_id = random.randint(10,100000)  
+        bridge_id = random.randint(10,50000)  
         if self.verbose:
             print('Generating bridge IDs...')
             print('Bridge ID: {}'.format(bridge_id))
@@ -216,7 +217,7 @@ class DelaySim():
         for interface in self.interfaces:
             for queue in range(1, self.queues_per_interface + 1):
                 try:
-                    self.process_external_command('tc qdisc del dev {hw_interface} parent :{queue} netem delay {delay} limit 1000000'.format(
+                    self.process_external_command('tc qdisc del dev {hw_interface} parent :{queue} netem delay {delay} limit 10000000'.format(
                         hw_interface=interface, queue=queue, delay=self.delay))
                 except ValueError as e:
                     print(
@@ -247,7 +248,7 @@ class DelaySim():
         print('Bringing up hw interfaces...')
         for interface in self.interfaces:
             self.process_external_command(
-                'ifconfig {hw_interface} 0.0.0.0 promisc up'.format(hw_interface=interface))
+                'ifconfig {hw_interface} 0.0.0.0 promisc mtu 9000 up'.format(hw_interface=interface))
         print('Creating and configuring bridge groups...')
         self.process_external_command('brctl addbr br{}'.format(self.get_bridge_id()))
         for interface in self.interfaces:
@@ -264,7 +265,7 @@ class DelaySim():
         try:
             for interface in self.interfaces:
                 for queue in range(1, self.queues_per_interface + 1):
-                    self.process_external_command('tc qdisc add dev {hw_interface} parent :{queue} netem delay {delay} limit 100000'.format(
+                    self.process_external_command('tc qdisc add dev {hw_interface} parent :{queue} netem delay {delay} limit 10000000'.format(
                         hw_interface=interface, queue=queue, delay=self.delay))
         except ValueError as e:
             print(
