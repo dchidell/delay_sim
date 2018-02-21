@@ -8,24 +8,25 @@ interface_groups:
   queue_count: 8
   # Our delay group members
   members:
-   enp15s0:
+   enp21s0:
     # This is CPU allocated for tx & rx queues. This number is the start. End is start + queue_count
     tx: 0
-    rx: 0
-   enp21s0:
-    tx: 0
+    rx: 16
+   enp136s0:
+   # enp21s0:
+    tx: 16
     rx: 0
 
  card2:
   delay: 100ms
   queue_count: 8
   members:
-   enp136s0:
-    tx: 0
-    rx: 0
+   enp15s0:
+    tx: 8
+    rx: 24
    enp143s0:
-    tx: 0
-    rx: 0
+    tx: 24
+    rx: 8
 
 # This section contains some misc kernel tweaks
 kernel_tweaks:
